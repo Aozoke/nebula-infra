@@ -10,6 +10,10 @@ vm1_name="${vm1_name}"
 vm2_name="${vm2_name}"
 vm3_name="${vm3_name}"
 
+sudo systemctl enable --now docker >/dev/null 2>&1 || true
+sudo systemctl is-active --quiet docker
+sudo docker version >/dev/null
+
 swarm_state="$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive)"
 if [[ "$swarm_state" != "active" ]]; then
   sudo docker swarm init --advertise-addr "$manager_ip"
@@ -22,6 +26,9 @@ join_worker() {
 
   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "${ssh_user}@$${host}" "
     set -euo pipefail
+    sudo systemctl enable --now docker >/dev/null 2>&1 || true
+    sudo systemctl is-active --quiet docker
+    sudo docker version >/dev/null
     state=\$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive)
     if [[ \"\$state\" != \"active\" ]]; then
       sudo docker swarm join --token '$${worker_token}' '${manager_ip}:2377'
