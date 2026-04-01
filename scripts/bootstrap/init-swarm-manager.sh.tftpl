@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ssh_key="${manager_ssh_key_remote_path}"
+ssh_user="${ssh_user}"
+manager_ip="${manager_ip}"
+vm1_ip="${vm1_ip}"
+vm3_ip="${vm3_ip}"
+vm1_name="${vm1_name}"
+vm2_name="${vm2_name}"
+vm3_name="${vm3_name}"
+
+swarm_state="$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive)"
+if [[ "$swarm_state" != "active" ]]; then
+  sudo docker swarm init --advertise-addr "$manager_ip"
+fi
+
+worker_token="$(sudo docker swarm join-token -q worker)"
+
+join_worker() {
+  local host="$1"
+
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "${ssh_user}@$${host}" "
+    set -euo pipefail
+    state=\$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive)
+    if [[ \"\$state\" != \"active\" ]]; then
+      sudo docker swarm join --token '$${worker_token}' '${manager_ip}:2377'
+    fi
+  "
+}
+
+join_worker "$vm1_ip"
+join_worker "$vm3_ip"
+
+for node_name in "$vm1_name" "$vm3_name"; do
+  for attempt in $(seq 1 30); do
+    if sudo docker node inspect "$node_name" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+done
+
+sudo docker node update --label-add role=app "$vm1_name"
+sudo docker node update --label-add role=edge "$vm2_name"
+sudo docker node update --label-add role=data "$vm3_name"
+sudo docker node ls

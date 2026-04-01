@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_path="${repo_path}"
+postgres_password_b64="${postgres_password_b64}"
+manager_name="${manager_name}"
+app_name="${app_name}"
+data_name="${data_name}"
+
+if ! sudo docker secret inspect nebula_postgres_password >/dev/null 2>&1; then
+  printf '%s' "$postgres_password_b64" | base64 -d | sudo docker secret create nebula_postgres_password -
+fi
+
+cd "$repo_path"
+bash scripts/deploy/one-button-3vm.sh "$manager_name" "$app_name" "$data_name"
+sudo docker stack services nebula
+sudo docker node ls

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_path="${repo_path}"
+ssh_key="${manager_ssh_key_remote_path}"
+ssh_user="${ssh_user}"
+app_ip="${app_ip}"
+
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "${ssh_user}@${app_ip}" "
+  set -euo pipefail
+  cd '${repo_path}'
+  sudo docker build -t nebula/users-api:v0.3.0 services/users-api
+  sudo docker build -t nebula/posts-api:v0.2.0 services/posts-api
+  sudo docker build -t nebula/feed-api:v0.3.0 services/feed-api
+  sudo docker build -t nebula/feed-worker:v0.1.0 services/feed-worker
+  sudo docker images | grep nebula
+"
