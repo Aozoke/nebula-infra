@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sudo systemctl enable --now docker >/dev/null 2>&1 || true
+sudo systemctl is-active --quiet docker
+sudo docker version >/dev/null
+
+pull_with_fallback() {
+  local target="$1"
+  shift
+
+  if sudo docker image inspect "$target" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  for source in "$@"; do
+    if sudo docker pull "$source"; then
+      if [[ "$source" != "$target" ]]; then
+        sudo docker tag "$source" "$target"
+      fi
+      return 0
+    fi
+  done
+
+  echo "Error: impossible de precharger l'image $target" >&2
+  return 1
+}
+
+pull_with_fallback "traefik:v2.11" \
+  "public.ecr.aws/docker/library/traefik:2.11" \
+  "traefik:v2.11"
+
+pull_with_fallback "postgres:16-alpine" \
+  "public.ecr.aws/docker/library/postgres:16-alpine" \
+  "public.ecr.aws/docker/postgres:16-alpine" \
+  "postgres:16-alpine"
+
+pull_with_fallback "redis:7.2-alpine" \
+  "public.ecr.aws/docker/library/redis:7.2-alpine" \
+  "public.ecr.aws/docker/redis:7.2-alpine" \
+  "redis:7.2-alpine"
+
+pull_with_fallback "portainer/agent:2.39.0-alpine" \
+  "portainer/agent:2.39.0-alpine"
+
+pull_with_fallback "portainer/portainer-ce:2.39.0-alpine" \
+  "portainer/portainer-ce:2.39.0-alpine"
+
+pull_with_fallback "grafana/grafana:11.2.2" \
+  "grafana/grafana:11.2.2"
+
+pull_with_fallback "prom/prometheus:v2.54.1" \
+  "quay.io/prometheus/prometheus:v2.54.1" \
+  "prom/prometheus:v2.54.1"
+
+pull_with_fallback "prom/node-exporter:v1.8.2" \
+  "quay.io/prometheus/node-exporter:v1.8.2" \
+  "prom/node-exporter:v1.8.2"

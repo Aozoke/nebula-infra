@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+manager_ip="${manager_ip}"
+app_ip="${app_ip}"
+data_ip="${data_ip}"
+manager_name="${manager_name}"
+app_name="${app_name}"
+data_name="${data_name}"
+ssh_key="${manager_ssh_key_remote_path}"
+ssh_user="${ssh_user}"
+repo_path="${nebula_repo_path}"
+repo_url="${nebula_repo_url}"
+python_base_image="${python_base_image}"
+postgres_password_b64="${postgres_password_b64}"
+
+remote_ssh() {
+  local host="$1"
+  shift
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "$ssh_user@$host" "$@"
+}
+
+ensure_repo_local() {
+  echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4 >/dev/null
+  sudo apt-get -o Acquire::ForceIPv4=true update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true install -y git
+
+  if [[ -d "$repo_path/.git" ]]; then
+    git -C "$repo_path" pull --ff-only
+  else
+    git clone "$repo_url" "$repo_path"
+  fi
+}
+
+ensure_repo_remote() {
+  local host="$1"
+  remote_ssh "$host" bash -se <<EOF
+set -euo pipefail
+echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4 >/dev/null
+sudo apt-get -o Acquire::ForceIPv4=true update
+sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true install -y git
+
+if [[ -d '$repo_path/.git' ]]; then
+  git -C '$repo_path' pull --ff-only
+else
+  git clone '$repo_url' '$repo_path'
+fi
+EOF
+}
+
+join_worker_if_needed() {
+  local host="$1"
+  local token="$2"
+
+  remote_ssh "$host" "set -euo pipefail; \
+    sudo systemctl enable --now docker >/dev/null 2>&1 || true; \
+    sudo systemctl is-active --quiet docker; \
+    sudo docker version >/dev/null; \
+    state=\$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive); \
+    if [[ \"\$state\" != \"active\" ]]; then \
+      sudo docker swarm join --token '$token' '$manager_ip:2377'; \
+    fi"
+}
+
+build_app_images() {
+  remote_ssh "$app_ip" bash -se <<EOF
+set -euo pipefail
+sudo systemctl enable --now docker >/dev/null 2>&1 || true
+sudo systemctl is-active --quiet docker
+sudo docker version >/dev/null
+cd '$repo_path'
+find services -name Dockerfile -exec sed -i 's|^FROM python:3.12-slim$|FROM $python_base_image|' {} \;
+sudo docker pull '$python_base_image'
+sudo docker build -t nebula/users-api:v0.3.0 services/users-api
+sudo docker build -t nebula/posts-api:v0.2.0 services/posts-api
+sudo docker build -t nebula/feed-api:v0.3.0 services/feed-api
+sudo docker build -t nebula/feed-worker:v0.1.0 services/feed-worker
+EOF
+}
+
+sudo systemctl enable --now docker >/dev/null 2>&1 || true
+sudo systemctl is-active --quiet docker
+sudo docker version >/dev/null
+
+swarm_state="$(sudo docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo inactive)"
+if [[ "$swarm_state" != "active" ]]; then
+  sudo docker swarm init --advertise-addr "$manager_ip"
+fi
+
+worker_token="$(sudo docker swarm join-token -q worker)"
+join_worker_if_needed "$app_ip" "$worker_token"
+join_worker_if_needed "$data_ip" "$worker_token"
+
+for node_name in "$app_name" "$data_name"; do
+  for _ in $(seq 1 30); do
+    if sudo docker node inspect "$node_name" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+done
+
+ensure_repo_local
+ensure_repo_remote "$app_ip"
+build_app_images
+
+if ! sudo docker secret inspect nebula_postgres_password >/dev/null 2>&1; then
+  printf '%s' "$postgres_password_b64" | base64 -d | sudo docker secret create nebula_postgres_password -
+fi
+
+cd "$repo_path"
+bash scripts/deploy/one-button-3vm.sh "$manager_name" "$app_name" "$data_name"
+sudo docker stack services nebula
+sudo docker stack services portainer
+sudo docker node ls
