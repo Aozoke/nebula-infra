@@ -14,6 +14,7 @@ if ! sudo docker secret inspect grafana_admin_password >/dev/null 2>&1; then
 fi
 
 cd "$repo_path"
+sed -i "s|/home/etudiant/Nebula-infra-swarm|${repo_path}|g" deploy/swarm/base/stack.monitoring.yml
 sed -i "s|GF_SERVER_ROOT_URL: .*|      GF_SERVER_ROOT_URL: \"${grafana_root_url}\"|" deploy/swarm/base/stack.monitoring.yml
 bash scripts/deploy/deploy-monitoring.sh
 sudo docker stack services monitoring

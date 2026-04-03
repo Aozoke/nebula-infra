@@ -5,6 +5,7 @@ repo_path="${repo_path}"
 ssh_key="${manager_ssh_key_remote_path}"
 ssh_user="${ssh_user}"
 app_ip="${app_ip}"
+python_base_image="${python_base_image}"
 
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "${ssh_user}@${app_ip}" "
   set -euo pipefail
@@ -12,6 +13,8 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$ssh_key" "$
   sudo systemctl is-active --quiet docker
   sudo docker version >/dev/null
   cd '${repo_path}'
+  find services -name Dockerfile -exec sed -i 's|^FROM python:3.12-slim$|FROM ${python_base_image}|' {} \;
+  sudo docker pull '${python_base_image}'
   sudo docker build -t nebula/users-api:v0.3.0 services/users-api
   sudo docker build -t nebula/posts-api:v0.2.0 services/posts-api
   sudo docker build -t nebula/feed-api:v0.3.0 services/feed-api

@@ -27,6 +27,12 @@ variable "nebula_repo_url" {
   description = "Depot Git a cloner sur vm1 et vm2 pour la partie applicative."
 }
 
+variable "python_base_image" {
+  type        = string
+  default     = "public.ecr.aws/docker/library/python:3.12-slim"
+  description = "Image de base Python utilisee pour les builds applicatifs afin d'eviter le rate limit Docker Hub."
+}
+
 variable "enable_swarm_bootstrap" {
   type        = bool
   default     = false
@@ -255,6 +261,7 @@ resource "null_resource" "build_app_images_vm1" {
   triggers = {
     app_ip              = local.vm1_ip
     repo_path           = local.nebula_repo_path
+    python_base_image   = var.python_base_image
     build_images_script = filesha256("${path.module}/scripts/bootstrap/build-images-vm1.sh.tftpl")
   }
 
@@ -280,6 +287,7 @@ resource "null_resource" "build_app_images_vm1" {
     content = templatefile("${path.module}/scripts/bootstrap/build-images-vm1.sh.tftpl", {
       app_ip                      = local.vm1_ip
       manager_ssh_key_remote_path = local.manager_ssh_key_remote_path
+      python_base_image           = var.python_base_image
       repo_path                   = local.nebula_repo_path
       ssh_user                    = local.ssh_user
     })
